@@ -1,0 +1,209 @@
+<html>
+
+<head>
+<meta http-equiv="content-type" content="text/html; charset=ISO-8859-1">
+
+<style>
+</style>
+
+<script type="text/javascript" src="js/utils.js"></script>
+<script type="text/javascript" src="js/gl-helpers.js"></script>
+<script type="text/javascript" src="js/webgl-utils.js"></script>
+<script type="text/javascript" src="js/data-structures.js"></script>
+
+<script type="text/javascript" src="js/gl-matrix/common.js"></script>
+<script type="text/javascript" src="js/gl-matrix/mat4.js"></script>
+<script type="text/javascript" src="js/gl-matrix/vec3.js"></script>
+<script type="text/javascript" src="js/gl-matrix/vec4.js"></script>
+
+<script type="text/javascript" src="js/matrix-stack.js"></script>
+<script type="text/javascript" src="js/controls.js"></script>
+
+<script type="text/javascript" src="js/mparamtram.js"></script>
+<script type="text/javascript" src="js/gl-buffered.js"></script>
+<script type="text/javascript" src="js/geom.js"></script>
+<script type="text/javascript" src="js/drawers.js"></script>
+<script type="text/javascript" src="js/bodyparts.js"></script>
+<script type="text/javascript" src="js/scene.js"></script>
+
+<script id="shader-vs" type="x-shader/x-vertex">
+    attribute vec3 aVertexPosition;
+    attribute vec3 aVertexNormal;
+    attribute vec2 aVertexUV;
+    varying vec3 vNormal;
+    varying vec2 vUV;
+    uniform mat4 uNormalMatrix;
+    uniform mat4 uMVMatrix;
+    uniform mat4 uPMatrix;
+    uniform mat4 uViewMatrix;
+    varying vec3 lightDir;
+
+    void main(void) {
+        vNormal = normalize((uNormalMatrix * vec4(aVertexNormal, 0.)).xyz);
+        vUV = aVertexUV;
+
+        lightDir = vec3(1., 1., 1.);
+        lightDir = normalize(lightDir);
+
+        gl_Position = uPMatrix * uMVMatrix * vec4(aVertexPosition, 1.0);
+
+        gl_PointSize = 4.0;
+    }
+</script>
+
+<script id="shader-fs" type="x-shader/x-fragment">
+    precision mediump float;
+    varying vec3 vNormal;
+    varying vec2 vUV;
+    uniform vec3 uColor;
+    varying vec3 lightDir;
+    void main(void) {
+        float ang = dot(lightDir, vNormal);
+        gl_FragColor = vec4(uColor * ang, 1.0);
+        gl_FragColor.x += vUV.x / 10.;        gl_FragColor.y += vUV.y / 10.;
+    }
+</script>
+
+<script type="text/javascript">
+
+    //========== Matrix Stack ===========//
+
+    function normalMatrix() {
+        var norm = mat4.invert(mat4.create(), mvMatrix.top());
+        mat4.transpose(norm, norm);
+        return norm;
+    }
+
+    //========== Shaders ================//
+
+    var shaderProgram;
+
+    function initShaders() {
+
+        shaderProgram = initShader("shader-vs", "shader-fs");
+
+        pinAttribute('aVertexPosition', 'position').onto(shaderProgram);
+        pinAttribute('aVertexNormal', 'normal').onto(shaderProgram);
+        pinAttribute('aVertexUV', 'uv').onto(shaderProgram);
+
+        pinUniform('uPMatrix', 'pMatrix').onto(shaderProgram);
+        pinUniform('uMVMatrix', 'mvMatrix').onto(shaderProgram);
+        pinUniform('uNormalMatrix', 'normalMatrix').onto(shaderProgram);
+        pinUniform('uViewMatrix', 'viewMatrix').onto(shaderProgram);
+
+        pinUniform('uSampler', 'sampler').onto(shaderProgram);
+        pinUniform('uColor', 'color').onto(shaderProgram);
+
+        shaderProgram.prepareToDraw = function () {
+            gl.uniformMatrix4fv(this.uniforms['pMatrix'], false, pMatrix.get());
+            gl.uniformMatrix4fv(this.uniforms['mvMatrix'], false, mvMatrix.top());
+            gl.uniformMatrix4fv(this.uniforms['normalMatrix'], false, normalMatrix());
+            gl.uniformMatrix4fv(this.uniforms['viewMatrix'], false, Camera.getTransform());
+        };
+
+        shaderProgram.setColor = function (color) {
+            gl.uniform3fv(this.uniforms['color'], color);
+        }
+    }
+
+    //========== Controls ===============//
+
+    var CONTROLS = new Controls();
+
+    function handleKeys () {
+        if (CONTROLS.Keyboard.pressed[33])            // Page Up
+            Camera.setZoom( Camera.getZoom() - 0.1 );
+        if (CONTROLS.Keyboard.pressed[34])            // Page Down
+            Camera.setZoom( Camera.getZoom() + 0.1 );
+        if (CONTROLS.Keyboard.pressed[38])            // Up cursor key
+            Camera.setTilt( Camera.getTilt() + 2 );
+        if (CONTROLS.Keyboard.pressed[40])            // Down cursor key
+            Camera.setTilt( Camera.getTilt() - 2 );
+        if (CONTROLS.Keyboard.pressed[39])            // Right cursor key
+            Camera.setSpin( Camera.getSpin() + 2 );
+        if (CONTROLS.Keyboard.pressed[37])            // Right cursor key
+            Camera.setSpin( Camera.getSpin() - 2 );
+    }
+
+    //======================================================
+
+    var scene = {
+        objects : [],
+
+        update : function () {
+            for (var i = 0; i < this.objects.length; i++)
+                this.objects[i].update();
+        },
+
+        draw : function () {
+            for (var i = 0; i < this.objects.length; i++)
+                this.objects[i].draw();
+        }
+    };
+
+    function initScene() {
+        toonScene(scene);
+    }
+
+    function drawScene() {
+        gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+        mvMatrix.clear();
+        mvMatrix.transform(Camera.getTransform());
+
+        scene.update();
+        scene.draw();
+    }
+
+    var time_last, time, elapsed;
+
+    function tick() {
+        time_last = time;
+        time = new Date * .001;
+        elapsed = time - time_last;
+
+        requestAnimFrame(tick);
+        handleKeys();
+        drawScene();
+    }
+
+    function webGLStart() {
+        time = new Date * .001;
+
+        var canvas = document.getElementById("main-canvas");
+        initGL(canvas);
+        initShaders();
+        initScene();
+
+        gl.disable(gl.BLEND);
+        gl.enable(gl.DEPTH_TEST);
+        gl.depthFunc(gl.LESS);
+
+        pMatrix.setAr(gl.viewportWidth / gl.viewportHeight);
+
+        gl.clearColor(0.0, 0.0, 0.0, 1.0);
+
+        document.onkeydown = function (event) { CONTROLS.Keyboard.handleDown(event.keyCode); };
+        document.onkeyup = function (event)   { CONTROLS.Keyboard.handleUp(event.keyCode); };
+
+        canvas.onmousemove = function (event) {
+            var x = event.clientX - event.target.getBoundingClientRect().left;
+            var y = event.clientY - event.target.getBoundingClientRect().top;
+            CONTROLS.Mouse.handleMove( x / gl.viewportWidth * 2 - 1, 1 - y / gl.viewportHeight * 2 );
+        }
+
+        canvas.onmousedown = function (event) { CONTROLS.Mouse.handleDown(); }
+        document.onmouseup = function (event) { CONTROLS.Mouse.handleUp(); }
+
+        tick();
+    }
+
+</script>
+</head>
+
+<body onload="webGLStart();">
+    <canvas id="main-canvas" style="border: none;" width="500" height="500"></canvas>
+</body>
+
+</html>
